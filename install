@@ -1,0 +1,158 @@
+#!/bin/bash
+#
+# Use Simple CLient SDK and Client and capture Performance metrics of SIP audio sessions.
+# Install al the required dependencies for SIP custom monitor using SIP Client SDK and client.
+
+# Exit on any subcommand failure.
+set -e
+
+# Set global variables to use.
+red="\033[0;31m"
+green="\033[0;32m"
+yellow="\033[0;33m"
+no_color="\033[0m"
+prerequisites=("python" "pip" "yum")
+yum_packages=("gcc" "openssl-devel" "epel-release" "python-wheel"
+  "gmp-devel" "mpfr-devel" "libmpc-devel" "python-devel" "python-zope-interface"
+  "libvpx-devel" "gcc-c++" "libsqlite3x-devel" "libv4l-devel" "alsa-lib-devel"
+  "git" "libvpx" "libuuid" "sqlite" "pkgconfig" "openssl" "alsa-lib")
+pip_packages=("cython" "dnspython" "lxml" "python-gnutls" "python-otr" "python-application"
+  "twisted" "python-dateutil" "greenlet" "python-cjson")
+git_packages=("python-eventlib" "python-xcaplib" "python-msrplib" "python-sipsimple" "sipclients")
+
+################################################################################
+# Handle error and print to stderr.
+# Arguments:
+#   Error details.
+# Output:
+#   Writes metric to stderr.
+################################################################################
+error_handling(){
+  echo "[ERROR]: $*" >&2
+}
+
+################################################################################
+# Check if prerequisites are installed.
+# Arguments:
+#   package name to check its installation.
+#   Total number of prerequisites.
+#   Current counter of the prerequisite from total.
+# Output:
+#   Throws error if if prerequisite is not installed to stderr.
+################################################################################
+check_prerequisites(){
+  prerequisite_name="$1"
+  total_prerequisites="$2"
+  count_of_prerequisites="$3"
+
+  printf "\n${green}[${count_of_prerequisites}/${total_prerequisites}] pre-requisites: Checking ${prerequisite_name} installation.${no_color}\n"
+  if [[  "$(command -v ${prerequisite_name})" == "/dev/null" ]] || [[ -z "$(command -v ${prerequisite_name})" ]]; then
+    printf "\n${red}${prerequisite_name} is not installed.${no_color}\n"
+    error_handling "Please install the required prerequisite to continue with the installation."
+    exit -1
+  fi
+
+}
+
+################################################################################
+# Function to install packages using sudo and yum.
+# Arguments:
+#   package name for installation.
+#   Total number of packages.
+#   Current counter of the packages from total.
+# Output:
+#   Writes after installing on the stdout.
+################################################################################
+install_from_yum(){
+  package_name="$1"
+  total_packages="$2"
+  count_of_current_package="$3"
+
+  printf "\n${green}[${count_of_current_package}/${total_packages}] Installing: ${package_name}${no_color}\n"
+  sudo yum -y install ${package_name}
+}
+
+################################################################################
+# Function to install packages using pip.
+# Arguments:
+#   package name for installation.
+#   Total number of packages.
+#   Current counter of the packages from total.
+# Output:
+#   Writes after installing on the stdout.
+################################################################################
+install_from_pip(){
+  pip_package_name="$1"
+  pip_total_packages="$2"
+  pip_current_counter="$3"
+
+  printf "\n${green}[${pip_current_counter}/${pip_total_packages}] Installing: ${pip_package_name}${no_color}\n"
+  yes | pip install -U ${pip_package_name}
+}
+
+################################################################################
+# Function to install packages using git.
+# Arguments:
+#   package name for installation.
+#   Total number of packages.
+#   Current counter of the packages from total.
+# Output:
+#   Writes after installing on the stdout.
+################################################################################
+install_from_git(){
+  clone_url_parameter="$1"
+  git_total_packages="$2"
+  git_current_counter="$3"
+  git_repo_url="https://github.com/AGProjects/${clone_url_parameter}.git"
+
+  printf "\n${green}[${git_current_counter}/${git_total_packages}] Cloning and Installing: ${git_repo_url}${no_color}\n"
+  if [[ -d ${clone_url_parameter} ]]; then
+    cd ${clone_url_parameter}
+    git pull --all
+    sudo python setup.py install
+  else
+    git clone ${git_repo_url}
+    cd ${clone_url_parameter}
+    sudo python setup.py install
+  fi
+
+  cd ..
+}
+
+
+# Check for prerequisites before begining with installation.
+printf "\n${yellow}Checking pre-requisites.${no_color}\n"
+count=1
+for prerequisites in "${prerequisites[@]}"; do
+  check_prerequisites ${prerequisites} ${#prerequisites[@]} ${count}
+  count=$((${count} + 1))
+done
+
+# Install all the dependent packages with yum.
+printf "\n${yellow}Installing required packages using yum.${no_color}\n"
+count=1
+for yum_packages in "${yum_packages[@]}"; do
+  install_from_yum ${yum_packages} ${#yum_packages[@]} ${count}
+  count=$((${count} + 1))
+done
+
+# installing ffmpeg separately due to parameters.
+printf "\n${green}Installing: ffmpeg ffmpeg-devel${no_color}\n"
+sudo yum localinstall --nogpgcheck https://download1.rpmfusion.org/free/el/rpmfusion-free-release-7.noarch.rpm
+sudo yum install ffmpeg ffmpeg-devel
+
+# Install all the dependent packages with pip.
+printf "\n${yellow}Installing required packages using pip.${no_color}\n"
+count=1
+for pip_packages in "${pip_packages[@]}"; do
+  install_from_pip ${pip_packages} ${#pip_packages[@]} ${count}
+  count=$((${count} + 1))
+done
+
+# Install Simple Client SDK and Client with git.
+printf "\n${yellow}Installing Simple Client SDK with Client and dependencies using Git.${no_color}\n"
+count=1
+for git_packages in "${git_packages[@]}"; do
+  install_from_git ${git_packages} ${#git_packages[@]} ${count}
+  count=$((${count} + 1))
+done
