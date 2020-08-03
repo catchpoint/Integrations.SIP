@@ -36,6 +36,10 @@ Save to `/opt/3genlabs/hawk/syntheticnode/service/shellmonitor/sandbox` on your 
 
 ### Install all the dependencies required for the set up.
 
+1. Update `yum` and `pip` to the latest version.  
+`$ yum update -y`  
+`$ pip install --upgrade pip`
+
 1. Change the permissions for the `Install` file.  
 `$ chmod a+x Install`
 
