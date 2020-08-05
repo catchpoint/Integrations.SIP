@@ -1,0 +1,289 @@
+#!/bin/bash
+#
+# Use Simple CLient SDK and Client and capture Performance metrics of SIP audio sessions.
+
+# Set environment variables from Catchpoint script.
+SIP_TO_URI="${CP_UNSAFE_VAR_SIPADDRESSTO}"
+CALL_DURATION="${CP_UNSAFE_VAR_DURATION}"
+
+# Set required global variables.
+rtt=""
+jitter_rx=""
+jitter_tx=""
+packet_loss=""
+statistical_value="Average"
+file="/opt/3genlabs/hawk/syntheticnode/service/shellmonitor/sandbox/call.log"
+
+################################################################################
+# Handle error and print to stderr.
+# Arguments:
+#   Error details.
+# Output:
+#   Writes metric to stderr.
+################################################################################
+error_handling(){
+  echo "[ERROR]: $*" >&2
+}
+
+################################################################################
+# Use SIP simple client SDK and Client to trigger and record performance of audio session. This will store the logs in call.log file.
+# Globals:
+#   SIP_TO_URI
+#   CALL_DURATION
+# Output:
+#   Stores logs in call.log file..
+################################################################################
+intitiate_sip_call(){
+# Check environment variables for value.
+  if [[ -z "${SIP_TO_URI}" ]] || [[ -z "${CALL_DURATION}" ]]; then
+    error_handling "Environment variables are empty, need to pass SIP URI to call and call duration."
+    exit 1
+  fi
+
+  if (( ${CALL_DURATION} > 100 )); then
+    error_handling "Call duration cannot be greater than 100 seconds."
+    exit 1
+  fi
+
+  # run the audio call with SIP client and SDK.
+  # Add call duration and caller SIP URI dynamically.
+  echo p |
+  sudo sip-audio-session --auto-hangup ${CALL_DURATION} --trace-sip --trace-pjsip --trace-notifications ${SIP_TO_URI} |
+  tee ${file}
+}
+
+################################################################################
+# Calculate SIP metrics using call.log file.
+# Arguments:
+#   Call.log file path.
+#   Begining event name to capture timestamp from call.log file.
+#   Ending event name to capture timestamp from call.log file.
+#   Name of the metric being calculated.
+# Output:
+#   Writes metric to stdout.
+################################################################################
+calculate_sip_metrics(){
+  file_path="$1"
+  start_string="$2"
+  end_string="$3"
+  metric_name="$4"
+
+  # Extract the entire log line from log file with date and time for metric calculation.
+  # For Session Disconnect Delay metric, extract multiple lines.
+  if [[ "${metric_name}" == "Session Disconnect Delay" ]]; then
+    start_time_string="$(sed -n "/${start_string}/,/BYE/p" "${file_path}" | grep -P "SIPInvitationChangedState")"
+    end_time_string="$(grep -P "${end_string}" "${file_path}")"
+  else
+    start_time_string="$(grep -P "${start_string}" "${file_path}")"
+    end_time_string="$(grep -P "${end_string}" "${file_path}")"
+  fi
+
+  # Extract just the time values from the log line.
+  if [[ -n "${start_time_string}" ]] && [[ -n "${end_time_string}" ]]; then
+    start_date="$(echo "${start_time_string}" | grep -P "(([\d]+\-[\d]+\-[\d]+))" -o)"
+    start_time="$(echo "${start_time_string}" | grep -P "(([\d]+\:[\d]+\:[\d]+\.[\d]+))" -o)"
+
+    end_date="$(echo "${end_time_string}" | grep -P "(([\d]+\-[\d]+\-[\d]+))" -o)"
+    end_time="$(echo "${end_time_string}" | grep -P "(([\d]+\:[\d]+\:[\d]+\.[\d]+))" -o)"
+
+    # Calculate the differnce in time value.
+    seconds_difference=$(($(date -d "${end_date} ${end_time}" +%s) - $(date -d "${start_date} ${start_time}" +%s)))
+    nano_seconds_difference=$(($(date -d "${end_date} ${end_time}" +%-N) - $(date -d "${start_date} ${start_time}" +%-N)))
+
+    # Check if difference is negative and convert to positive.
+    if (( ${nano_seconds_difference} < 0 )); then
+      nano_seconds_difference=$((${nano_seconds_difference}*(-1)));
+    fi
+
+    # Calculate the metric_value time difference in miliseconds.
+    metric_value=$(((${seconds_difference} * 1000) + (${nano_seconds_difference} / 1000000)))
+  fi
+
+  if [[ -n "${metric_value}" ]]; then
+    echo "${metric_name}: ${metric_value} ms"
+  else
+    echo "${metric_name}: N/A"
+  fi
+
+}
+
+################################################################################
+# Calculate RTP metrics using call.log file.
+# Arguments:
+#   Name of the metric being calculated.
+#   RTP data in an array.
+# Globals
+#   rtt
+#   jitter_rx
+#   jitter_tx
+#   packet_loss
+# Output:
+#   Writes metric to stdout.
+################################################################################
+calculate_rtp_metrics(){
+  metric_name="$1"
+  shift
+  average_rtt_set=("$@")
+
+  # Check if RTT data is present.
+  if (( ${#average_rtt_set[@]} == 0 )); then
+    error_handling "RTP metrics are not captured - empty array."
+    exit 1
+  else
+    # Calculate the average.
+    total_each_value=0
+    for average_rtt_set in ${average_rtt_set[@]}; do
+      each_value=$(echo ${average_rtt_set} | grep -P "([\d\.]+)" -o)
+      total_each_value=$(echo ${total_each_value} + ${each_value} | bc)
+    done
+
+    if [ "${total_each_value}" == 0 ]; then
+      average_value=0
+      echo "Avarage of ${metric_name}: ${average_value}"
+    else
+      average_value=$(echo "scale=2; ${total_each_value} / ${#average_rtt_set[@]}" | bc)
+
+      if [[ "${metric_name}" == "Round Trip Time" ]] || [[ "${metric_name}" == "Jitter RX" ]] || [[ "${metric_name}" == "Jitter TX" ]]; then
+        quantity="ms"
+      elif [[ "${metric_name}" == "Packet Loss" ]]; then
+        quantity="%"
+      fi
+
+      if [ "${average_value}" != "" ]; then
+        echo "Average - ${metric_name}: ${average_value} ${quantity}"
+      else
+        echo "Average - ${metric_name}: N/A"
+      fi
+
+    fi
+
+    # Store the Average values to variable for later use.
+    if [[ "${metric_name}" == "Round Trip Time" ]]; then
+      rtt=${average_value}
+    elif [[ "${metric_name}" == "Jitter RX" ]]; then
+      jitter_rx=${average_value}
+    elif [[ "${metric_name}" == "Jitter TX" ]]; then
+      jitter_tx=${average_value}
+    elif [[ "${metric_name}" == "Packet Loss" ]]; then
+      packet_loss=${average_value}
+    fi
+
+  fi
+
+}
+
+################################################################################
+# Calculate MOS using latence, jitter and packet loss.
+# Arguments:
+#   latency
+#   Jitter
+#   Packet loss
+#   jitter when reciever or transfered
+# Output:
+#   Writes metric to stdout.
+################################################################################
+calculate_mos_score(){
+  avgerage_latency=$1
+  avgerage_jitter=$2
+  avgerage_packet_loss=$3
+  jitter_type="$4"
+  mos=0
+
+  # Take the average latency, add jitter, but double the impact to latency then add 10 for protocol latencies
+  effective_latency=$(echo "(${avgerage_latency}+${avgerage_jitter}*2+10)" | bc -l)
+
+  #Implement a basic curve - deduct 4 for the R value at 160ms of latency (round trip).  Anything over that gets a much more agressive deduction
+  effective_latency_check=$(echo "${effective_latency}<160" | bc)
+  if (( ${effective_latency_check} == 1 )); then
+    r_value=$(echo "93.2-(${effective_latency}/40)" | bc -l)
+  else
+    r_value=$(echo "93.2-(${effective_latency}-120)/10" | bc -l)
+  fi
+
+  #Now, let's deduct 2.5 R values per percentage of packet loss
+  r_actual=$(echo "${r_value}-(${avgerage_packet_loss}*2.5)" | bc -l)
+
+  # Convert the R into an MOS value.(this is a known formula)
+  if (( 1 == $(echo "${r_actual} < 0" | bc) )); then
+    mos=1
+  elif (( 1 == $(echo "0 < ${r_actual}" | bc) )) && (( 1 == $(echo "${r_actual} < 100" | bc) )); then
+    mos=$(echo "1+(0.035)*(${r_actual})+(0.000007)*(${r_actual})*((${r_actual})-60)*(100-(${r_actual}))" | bc -l)
+  elif (( 1 == $(echo "${r_actual} > 100" | bc) )); then
+    mos=4.5
+  fi
+
+  # Print based on packet loss for recieved and Transmitted.
+  if [[ "${jitter_type}" == "RX" ]]; then
+    printf "RX MOS: %0.2f\n" ${mos}
+  elif [[ "${jitter_type}" == "TX" ]]; then
+    printf "TX MOS: %0.2f\n" ${mos}
+  fi
+
+}
+
+# Call the fuction to initiate and capture call logs.
+intitiate_sip_call
+
+# Process call.log file data.
+echo "Parsing the call logs..."
+if [[ -f "${file}" ]]; then
+  # Set all permissons for call.log file.
+  chmod 777 ${file}
+
+  # Calculate Session Negotiation Time metric.
+  calculate_sip_metrics "${file}" "SIPSessionNewOutgoing" "SIPSessionGotProvisionalResponse" "Session Request Delay"
+
+  # Calculate Session Negotiation Time metric.
+  calculate_sip_metrics "${file}" "SIPSessionNewOutgoing" "SIPSessionDidStart" "Session Negotiation Time"
+
+  # Calculate Session Duration Time metric.
+  call_duration_line="$(grep "Session duration was" ${file})"
+  call_duration_time="$(echo "${call_duration_line}" | grep -P "(([\d]+))" -o)"
+  if [[ -n "${metric_value}" ]]; then
+    echo "Session Duration Time: ${call_duration_time} seconds"
+  else
+    echo "Session Duration Time: N/A"
+  fi
+
+  # Parse the logs for RTP Metrics.
+  rtp_data="$(grep "RTP statistics:" ${file} | grep -v "RTP statistics: RTT=0 ms")"
+
+  # Complute RTP related metrics.
+  if [[ -n "${rtp_data}" ]]; then
+    rtp_rtt=($(echo "${rtp_data}" | grep -P "RTT=(([\d]+))" -o))
+    rtp_packet_loss=($(echo "${rtp_data}" | grep -P "loss=(([\d]+\.[\d]+))" -o))
+    rtp_jitter_rx=($(echo "${rtp_data}" | grep -P "RX/TX=((\d+))" -o))
+    rtp_jitter_tx=($(echo "${rtp_data}" | grep -P "/((\d+))\s" -o))
+
+    # Find the statical value bases on user input [average/mean].
+    if [[ "${statistical_value}" == "Average" ]]; then
+      # Get averages for RTT.
+      calculate_rtp_metrics "Round Trip Time" "${rtp_rtt[@]}"
+
+      # Get averages for packet loss.
+      calculate_rtp_metrics "Packet Loss" "${rtp_packet_loss[@]}"
+
+      # Get averages for jitter RX.
+      calculate_rtp_metrics "Jitter RX" "${rtp_jitter_rx[@]}"
+
+      # Get averages for jitter TX.
+      calculate_rtp_metrics "Jitter TX" "${rtp_jitter_tx[@]}"
+    fi
+
+    # Calculate MOS.
+    if [[ -n "${rtt}" ]] || [[ -n "${jitter_rx}" ]] || [[ -n "${jitter_tx}" ]] || [[ -n "${packet_loss}" ]]; then
+      calculate_mos_score ${rtt} ${jitter_rx} ${packet_loss} "RX"
+      calculate_mos_score ${rtt} ${jitter_tx} ${packet_loss} "TX"
+    else
+      error_handling "RTT, Jitter and Packet Loss details are required for MOS calculation."
+    fi
+
+  else
+    error_handling "RTP Data not present"
+  fi
+
+  calculate_sip_metrics ${file} "SIPSessionWillEnd" "SIPSessionDidEnd" "Session Disconnect Delay"
+else
+  error_handling "${file} does not exist."
+  exit 1
+fi
