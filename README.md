@@ -14,7 +14,7 @@ This monitor captures the following metrics to gauge the performance of Session 
 
 **Session Disconnect Delay (SDD)**:  SDD is the time difference the client initiating a SIP BYE request and the client receiving 200 OK. This is the last metric collected for SIP.
 
-**Round Trip Time (RTT)**: RTT is the time difference the client initiating a request and the client receiving a response. Reported in milliseconds.
+**Round Trip Time (RTT)**: RTT is the time difference between the client initiating a request and the client receiving a response. Reported in milliseconds.
 
 **Packet Loss**: Percentage of total packet loss during the audio session.
 
