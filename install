@@ -15,7 +15,7 @@ prerequisites=("python" "pip" "yum")
 yum_packages=("gcc" "openssl-devel" "epel-release" "python-wheel"
   "gmp-devel" "mpfr-devel" "libmpc-devel" "python-devel" "python-zope-interface"
   "libvpx-devel" "gcc-c++" "libsqlite3x-devel" "libv4l-devel" "alsa-lib-devel"
-  "git" "libvpx" "libuuid" "sqlite" "pkgconfig" "openssl" "alsa-lib")
+  "git" "libvpx" "libuuid" "sqlite" "pkgconfig" "openssl" "alsa-lib" "python-gmpy2")
 pip_packages=("cython" "dnspython" "lxml" "python-gnutls" "python-otr" "python-application"
   "twisted" "python-dateutil" "greenlet" "python-cjson")
 git_packages=("python-eventlib" "python-xcaplib" "python-msrplib" "python-sipsimple" "sipclients")
@@ -138,8 +138,8 @@ done
 
 # installing ffmpeg separately due to parameters.
 printf "\n${green}Installing: ffmpeg ffmpeg-devel${no_color}\n"
-sudo yum localinstall --nogpgcheck https://download1.rpmfusion.org/free/el/rpmfusion-free-release-7.noarch.rpm
-sudo yum install ffmpeg ffmpeg-devel
+sudo yum localinstall -y --nogpgcheck https://download1.rpmfusion.org/free/el/rpmfusion-free-release-7.noarch.rpm
+sudo yum install -y ffmpeg ffmpeg-devel
 
 # Install all the dependent packages with pip.
 printf "\n${yellow}Installing required packages using pip.${no_color}\n"
